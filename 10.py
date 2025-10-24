@@ -12,4 +12,4 @@ temp_path = r"C:\Users\user\Desktop\expense_cliaim\page1.png"
 pages[0].save(temp_path, "PNG")
 
 # auto_crop_receipt() 호출
-auto_crop_receipt(temp_path, r"C:\Users\user\Desktop\expense_cliaim\cropped_auto.png")
+auto_crop_receipt(temp_path, "cropped_auto.png")
