@@ -1,4 +1,4 @@
-name: ocr-expense-claim-form
+name: autoclaimexpense
 app:
   runtime: python@3.12
   env:
