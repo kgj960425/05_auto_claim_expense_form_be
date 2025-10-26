@@ -18,16 +18,3 @@ response = model.generate_content("태양계 행성의 종류에 대하여 알�
 # 생성된 텍스트를 출력합니다.
 print(response.text)
 print(response)
-
-################################################
-
-from google import genai
-
-client = genai.Client()
-
-response = client.models.generate_content(
-    model="gemini-2.5-flash",
-    contents="Explain how AI works in a few words",
-)
-
-print(response.text)

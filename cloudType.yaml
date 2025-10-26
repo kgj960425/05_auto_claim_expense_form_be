@@ -1,0 +1,9 @@
+name: ocr-receipt-server
+app:
+  runtime: python
+  env: python:3.10
+  build:
+    commands:
+      - pip install -r requirements.txt
+  run:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
