@@ -1,5 +1,5 @@
 from pdf2image import convert_from_path
-from crop_receipt import auto_crop_receipt
+from utils.crop_receipt import auto_crop_receipt
 
 PDF_PATH = r"C:\Users\user\Desktop\expense_cliaim\1.pdf"
 POPPLER_PATH = r"C:\Program Files\poppler-25.07.0\Library\bin"
