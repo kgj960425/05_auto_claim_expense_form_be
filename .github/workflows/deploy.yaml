@@ -29,7 +29,7 @@ jobs:
               healthz: /serverCheck
               env:
                 - name: GOOGLE_API_KEY
-                  value: AIzaSyCxYhiCvGNaz6NesfJy-MQHfV6Sr6kOdhk
+                  value: ${{ secrets.GOOGLE_API_KEY }}
               buildenv: []
             context:
               git:
