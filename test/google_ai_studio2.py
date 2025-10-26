@@ -1,5 +1,5 @@
 from google import genai
-from pymupdf4llm import PyMuPDF4LLM
+
 client = genai.Client()
 
 response = client.models.generate_content(

@@ -2,7 +2,8 @@ from fastapi import FastAPI, File, UploadFile
 import tempfile, os
 import cv2
 import numpy as np
-import fitz  # PyMuPDF
+import fitz
+import tempfile # 임시로 파일 생성. import 받은 파일이 with 구문 밖으로 나가자 마자 삭제 되도록
 import base64
 import requests
 
@@ -19,7 +20,7 @@ def custom_json():
 @app.post("/ocr/receipt")
 async def process_receipt(file: UploadFile = File(...)):
     # 1️⃣ PDF 임시 저장
-    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    temp_pdf = tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") # 파일 닫히는 순간 od가 자동으로 삭제
     temp_pdf.write(await file.read())
     temp_pdf.close()
 
