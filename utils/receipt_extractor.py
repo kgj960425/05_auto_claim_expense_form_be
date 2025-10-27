@@ -88,7 +88,7 @@ def extract_merchant_name(text: str) -> Optional[str]:
     """
     # "가맹점" 키워드 다음의 텍스트 추출
     patterns = [
-        r'가맹점[:\s]*([^\n]+)',
+        r'가맹점명[:\s]*([^\n]+)',
         r'상호[:\s]*([^\n]+)',
         r'매장[:\s]*([^\n]+)',
     ]
