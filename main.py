@@ -1,24 +1,33 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
-import tempfile, os
-import cv2
-import numpy as np
-import fitz
-import tempfile # 임시로 파일 생성. import 받은 파일이 with 구문 밖으로 나가자 마자 삭제 되도록
+import tempfile
+import os
 import base64
 import requests
-import pymupdf4llm
+import fitz
 import pytesseract
-from PIL import Image
 import re
 import pikepdf
-from datetime import datetime
-import uuid
-import glob
+import logging
+from typing import Dict, Any, List
 
-from fastapi.responses import JSONResponse
 from utils.crop_receipt import auto_crop_receipt
+from utils.ocr_processor import process_and_blur_image
+from utils.pdf_processor import process_pdf_for_ocr
+from utils.file_manager import (
+    create_workspace,
+    save_uploaded_pdf,
+    generate_output_filename,
+    cleanup_directory
+)
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Tesseract 경로 설정 (Windows)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -87,148 +96,126 @@ async def process_receipt(file: UploadFile = File(...), user_id: str = "tester")
     }
 
 @app.post("/ocr/upload")
-async def blur_sensitive_info(file: UploadFile = File(...), user_id: str = "tester"):
+async def blur_sensitive_info(files: List[UploadFile] = File(...), user_id: str = "tester") -> Dict[str, Any]:
     """
     PDF에서 민감 정보(카드번호, 8-10자리 숫자)를 자동으로 감지하고 블러 처리합니다.
 
-    - PyMuPDF4LLM으로 PDF에서 이미지 추출
-    - Tesseract OCR로 텍스트 위치 감지
-    - 카드번호(15자리 이상), 8-10자리 숫자를 찾아 블러 처리
-    - 블러 처리된 이미지를 Base64로 반환
+    Args:
+        files: 업로드된 PDF 파일 리스트 (다중 선택 가능, PDF만 허용)
+        user_id: 사용자 ID (기본값: "tester")
+
+    Returns:
+        처리 결과 딕셔너리 (처리된 이미지 개수, 출력 폴더 등)
+
+    Process:
+        1. 업로드된 파일들 검증 (PDF만 허용)
+        2. 작업 공간 생성 (PDF 저장 폴더 + OCR 결과 폴더)
+        3. PDF 파일들 저장
+        4. PDF에서 이미지 추출 (pymupdf4llm)
+        5. 각 이미지에 OCR 수행 및 민감 정보 감지
+        6. 감지된 영역에 블러 처리 적용
+        7. 결과 이미지 저장
+
+    Raises:
+        HTTPException: PDF 파일이 없거나 처리 중 오류 발생 시
     """
-    # 작업 시작 시간 기록
-    start_time = datetime.now()
-    timestamp = start_time.strftime("%Y%m%d%H%M%S")
-    job_uuid = str(uuid.uuid4())[:8]  # UUID의 앞 8자리만 사용
+    try:
+        # 1. 파일 검증
+        if not files:
+            raise HTTPException(status_code=400, detail="파일이 업로드되지 않았습니다")
 
-    # PDF 임시 저장 폴더 생성
-    custom_temp_folder = f"static/temp/pdf/{user_id}_{timestamp}_{job_uuid}"
-    os.makedirs(custom_temp_folder, exist_ok=True)
+        # PDF 파일만 필터링
+        pdf_files_to_upload = []
+        for file in files:
+            if not file.filename.lower().endswith('.pdf'):
+                logger.warning(f"PDF가 아닌 파일 스킵: {file.filename}")
+                continue
+            pdf_files_to_upload.append(file)
 
-    # PDF 파일 임시 저장
-    temp_pdf = tempfile.NamedTemporaryFile(dir=custom_temp_folder,delete=False, suffix=".pdf")
-    temp_pdf.write(await file.read())
-    temp_pdf.close()
-    
-    # OCR 결과 폴더명 생성
-    output_folder = f"static/temp/ocr/{user_id}_{timestamp}_{job_uuid}"
-    os.makedirs(output_folder, exist_ok=True)
+        if not pdf_files_to_upload:
+            raise HTTPException(status_code=400, detail="PDF 파일이 없습니다. PDF 파일만 업로드 가능합니다")
 
-    # 폴더 내 모든 PDF 파일 찾기
-    pdf_files = glob.glob(os.path.join(custom_temp_folder, "*.pdf"))
-    print(f"\n발견된 PDF 파일: {len(pdf_files)}개")
+        logger.info(f"업로드된 PDF 파일: {len(pdf_files_to_upload)}개")
 
-    if not pdf_files:
-        print("⚠️ PDF 파일이 없습니다!")
-        exit()
+        # 2. 작업 공간 생성
+        workspace = create_workspace(user_id)
+        logger.info(f"작업 공간 생성 완료: {workspace.output_folder}")
 
-    for pdf_idx, PDF_PATH in enumerate(pdf_files, 1):
-        print(f"\n{'='*80}")
-        print(f"[{pdf_idx}/{len(pdf_files)}] 처리 중: {os.path.basename(PDF_PATH)}")
-        print(f"{'='*80}")
+        # 3. 각 PDF 파일 처리
+        processed_count = 0
+        temp_image_dirs_to_cleanup = []
 
-        # 먼저 PyMuPDF로 텍스트가 있는지 확인
-        doc = fitz.open(PDF_PATH)
-        print(f"\nTotal pages: {len(doc)}")
+        for pdf_idx, file in enumerate(pdf_files_to_upload, 1):
+            logger.info(f"[{pdf_idx}/{len(pdf_files_to_upload)}] 처리 중: {file.filename}")
 
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            text = page.get_text()
-            print(f"\nPage {page_num + 1} - Text length: {len(text)}")
-            if text.strip():
-                print(f"First 200 chars: {text[:200]}")
-            else:
-                print("⚠️ No text found - This is likely an image-based PDF")
+            try:
+                # PDF를 workspace.pdf_folder에 저장 (원본 보존)
+                pdf_path = await save_uploaded_pdf(file, workspace.pdf_folder)
+                pdf_name = os.path.splitext(file.filename)[0]
 
-        doc.close()
+                # 임시 이미지 추출 폴더 (나중에 삭제할 것)
+                temp_image_dir = tempfile.mkdtemp()
+                temp_image_dirs_to_cleanup.append(temp_image_dir)
 
-        md_text = pymupdf4llm.to_markdown(PDF_PATH)
-        md_chunks = pymupdf4llm.to_markdown(PDF_PATH, page_chunks=True)
-        if isinstance(md_chunks, list) and md_chunks:
-            print(f"   First chunk length: {len(md_chunks[0].get('text', ''))}")
-            print(f"   First chunk preview: {md_chunks[0].get('text', '')[:300]}")
+                # PDF에서 이미지 추출
+                pdf_result = process_pdf_for_ocr(
+                    pdf_path,
+                    temp_image_dir,
+                    verbose=False
+                )
 
-        pdf_name = os.path.splitext(os.path.basename(PDF_PATH))[0]
-        temp_image_dir = f"static/temp/ocr/{pdf_name}"
-        os.makedirs(temp_image_dir, exist_ok=True)
+                logger.info(f"추출된 이미지: {len(pdf_result.extracted_images)}개")
 
-        try:
-            md_with_images = pymupdf4llm.to_markdown(
-                PDF_PATH,
-                write_images=True,
-                image_path=temp_image_dir,
-                page_chunks=True
-            )
-            print(f"   Success! Chunks: {len(md_with_images) if isinstance(md_with_images, list) else 'N/A'}")
-            if isinstance(md_with_images, list) and md_with_images:
-                print(f"   First chunk: {md_with_images[0].get('text', '')[:300]}")
-        except Exception as e:
-            print(f"   Error: {e}")
+                # 각 이미지에 OCR 및 블러 처리 적용
+                for page_num, img_path in enumerate(pdf_result.extracted_images, 1):
+                    try:
+                        # OCR 수행 및 민감 정보 감지 & 블러 처리
+                        blurred_img, sensitive_info = process_and_blur_image(img_path)
 
-        if os.path.exists(temp_image_dir):
-            image_files = [f for f in os.listdir(temp_image_dir) if f.endswith('.png')]
-            for img_file in image_files:
-                img_path = os.path.join(temp_image_dir, img_file)
-                img = Image.open(img_path)
+                        if sensitive_info:
+                            logger.info(f"  페이지 {page_num}: 감지된 민감 정보 {len(sensitive_info)}개")
+                            for info in sensitive_info:
+                                logger.debug(f"    - {info.label}: {info.text}")
 
-                ocr_text = pytesseract.image_to_string(img, lang='kor+eng', config='--psm 6')
-                data = pytesseract.image_to_data(img, lang='kor+eng', config='--psm 6', output_type=pytesseract.Output.DICT)
+                        # 블러 처리된 이미지만 최종 폴더에 저장
+                        output_filename = generate_output_filename(pdf_name, page_num)
+                        output_path = os.path.join(workspace.output_folder, output_filename)
+                        blurred_img.save(output_path)
 
-                # 민감 정보 찾기: 카드번호 + 8~10자리 모든 숫자
-                n_boxes = len(data['text'])
-                positions = []
+                        processed_count += 1
+                        logger.info(f"  저장 완료: {output_filename}")
 
-                for i in range(n_boxes):
-                    if int(data['conf'][i]) < 30:
+                    except Exception as e:
+                        logger.error(f"  페이지 {page_num} 처리 실패: {e}")
                         continue
 
-                    text = data['text'][i].strip()
-                    if not text:
-                        continue
+                if not pdf_result.extracted_images:
+                    logger.warning(f"PDF에서 이미지를 추출하지 못했습니다: {file.filename}")
 
-                    text_digits = re.sub(r'[^0-9*]', '', text)
+            except Exception as e:
+                logger.error(f"PDF 처리 실패 ({file.filename}): {e}")
+                continue
 
-                    # 카드번호 (15자리 이상, *포함)
-                    if len(text_digits) >= 15:
-                        x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                        positions.append(('카드번호', x, y, w, h))
-                        print(f"  🔍 카드번호: {text} (위치: {x}, {y})")
+        # 임시 이미지 디렉토리만 정리 (PDF 원본은 보존)
+        for temp_dir in temp_image_dirs_to_cleanup:
+            cleanup_directory(temp_dir)
 
-                    # 8~10자리 숫자 (날짜 제외)
-                    elif 8 <= len(text_digits) <= 10:
-                        # 날짜 패턴 제외 (YYYY-MM-DD 형태)
-                        if not re.match(r'20\d{2}[-/]\d{2}[-/]\d{2}', text):
-                            x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                            positions.append((f'{len(text_digits)}자리', x, y, w, h))
-                            print(f"  🔍 {len(text_digits)}자리 숫자: {text} (위치: {x}, {y})")
+        logger.info(f"임시 이미지 파일 정리 완료")
 
-                # 블러 처리
-                if positions:
-                    print(f"\n  블러 처리 시작... ({len(positions)}개 위치)")
-                    img_array = np.array(img)
-                    blurred = img_array.copy()
+        # 7. 결과 반환
+        return {
+            "success": True,
+            "message": "블러 처리 완료",
+            "uploaded_pdfs": len(pdf_files_to_upload),
+            "processed_images": processed_count,
+            "output_folder": workspace.output_folder
+        }
 
-                    for label, x, y, w, h in positions:
-                        padding = 10
-                        x1 = max(0, x - padding)
-                        y1 = max(0, y - padding)
-                        x2 = min(blurred.shape[1], x + w + padding)
-                        y2 = min(blurred.shape[0], y + h + padding)
-
-                        roi = blurred[y1:y2, x1:x2]
-                        if roi.size > 0:
-                            blurred_roi = cv2.GaussianBlur(roi, (51, 51), 0)
-                            blurred[y1:y2, x1:x2] = blurred_roi
-
-                    # 저장 - 파일명: 작업시작시간 + 원본파일명
-                    output_filename = f"{timestamp}_{pdf_name}_{img_file}"
-                    output_path = os.path.join(output_folder, output_filename)
-                    blurred_img = Image.fromarray(blurred)
-                    blurred_img.save(output_path)
-        else:
-            print("⚠️ No images extracted") 
-
-    return {"message": f"블러 처리 완료! 결과는 {output_folder}에 저장되었습니다."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"블러 처리 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @app.post("/merge/")
 async def merge_pdfs_in_order(request: MergeRequest):
