@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 
 class OCRConfig:
@@ -183,19 +183,41 @@ def process_image_with_ocr(
     return ocr_text, ocr_data
 
 
-def process_and_blur_image(img_path: str) -> Tuple[Image.Image, List[SensitiveInfo]]:
+def extract_card_number_from_sensitive_info(sensitive_info: List[SensitiveInfo]) -> Optional[str]:
     """
-    이미지에서 민감 정보를 감지하고 블러 처리된 이미지 반환
+    민감 정보 리스트에서 카드번호 추출
+
+    Args:
+        sensitive_info: 감지된 민감 정보 리스트
+
+    Returns:
+        카드번호 문자열 또는 None
+    """
+    for info in sensitive_info:
+        if info.label == '카드번호':
+            return info.text
+    return None
+
+
+def process_and_blur_image(img_path: str) -> Tuple[Image.Image, List[SensitiveInfo], str, Dict[str, Any]]:
+    """
+    이미지에서 OCR 수행, 민감 정보 감지, 블러 처리
 
     Args:
         img_path: 이미지 파일 경로
 
     Returns:
-        (블러 처리된 이미지, 감지된 민감 정보 리스트) 튜플
+        (블러 처리된 이미지, 감지된 민감 정보 리스트, OCR 텍스트, OCR 데이터) 튜플
     """
     img = Image.open(img_path)
 
-    # OCR 수행
+    # OCR 수행 (텍스트와 위치 데이터 모두 추출)
+    ocr_text = pytesseract.image_to_string(
+        img,
+        lang=OCRConfig.TESSERACT_LANG,
+        config=OCRConfig.TESSERACT_CONFIG
+    )
+
     ocr_data = pytesseract.image_to_data(
         img,
         lang=OCRConfig.TESSERACT_LANG,
@@ -209,4 +231,4 @@ def process_and_blur_image(img_path: str) -> Tuple[Image.Image, List[SensitiveIn
     # 블러 처리 적용
     blurred_img = apply_blur_to_image(img, sensitive_positions)
 
-    return blurred_img, sensitive_positions
+    return blurred_img, sensitive_positions, ocr_text, ocr_data

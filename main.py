@@ -13,8 +13,9 @@ import logging
 from typing import Dict, Any, List
 
 from utils.crop_receipt import auto_crop_receipt
-from utils.ocr_processor import process_and_blur_image
+from utils.ocr_processor import process_and_blur_image, extract_card_number_from_sensitive_info
 from utils.pdf_processor import process_pdf_for_ocr
+from utils.receipt_extractor import extract_receipt_info
 from utils.file_manager import (
     create_workspace,
     save_uploaded_pdf,
@@ -144,6 +145,7 @@ async def blur_sensitive_info(files: List[UploadFile] = File(...), user_id: str 
         # 3. 각 PDF 파일 처리
         processed_count = 0
         temp_image_dirs_to_cleanup = []
+        receipts_data = []  # 영수증 정보를 저장할 리스트
 
         for pdf_idx, file in enumerate(pdf_files_to_upload, 1):
             logger.info(f"[{pdf_idx}/{len(pdf_files_to_upload)}] 처리 중: {file.filename}")
@@ -167,26 +169,50 @@ async def blur_sensitive_info(files: List[UploadFile] = File(...), user_id: str 
                 logger.info(f"추출된 이미지: {len(pdf_result.extracted_images)}개")
 
                 # 각 이미지에 OCR 및 블러 처리 적용
-                for page_num, img_path in enumerate(pdf_result.extracted_images, 1):
+                for img_path in pdf_result.extracted_images:
                     try:
-                        # OCR 수행 및 민감 정보 감지 & 블러 처리
-                        blurred_img, sensitive_info = process_and_blur_image(img_path)
+                        # 1. OCR 수행 및 민감 정보 감지 & 블러 처리 (한 번에)
+                        blurred_img, sensitive_info, ocr_text, ocr_data = process_and_blur_image(img_path)
 
+                        # 2. OCR 텍스트 + 데이터로부터 영수증 정보 추출
+                        receipt_info = extract_receipt_info(ocr_text, ocr_data)
+
+                        # 3. 블러 처리에서 감지한 카드번호 우선 사용 (더 정확함)
+                        detected_card_number = extract_card_number_from_sensitive_info(sensitive_info)
+                        if detected_card_number:
+                            receipt_info.card_number = detected_card_number
+
+                        # 4. 전체 작업 순서대로 번호 매기기 (processed_count + 1)
+                        sequence_number = processed_count + 1
+
+                        logger.info(f"  이미지 {sequence_number}: 영수증 정보 추출 완료")
+                        logger.debug(f"    거래일자: {receipt_info.transaction_date}")
+                        logger.debug(f"    카드번호: {receipt_info.card_number}")
+                        logger.debug(f"    가맹점명: {receipt_info.merchant_name}")
+                        logger.debug(f"    합계: {receipt_info.total_amount}")
+
+                        # 5. 민감 정보 로깅
                         if sensitive_info:
-                            logger.info(f"  페이지 {page_num}: 감지된 민감 정보 {len(sensitive_info)}개")
+                            logger.info(f"  이미지 {sequence_number}: 감지된 민감 정보 {len(sensitive_info)}개")
                             for info in sensitive_info:
                                 logger.debug(f"    - {info.label}: {info.text}")
 
-                        # 블러 처리된 이미지만 최종 폴더에 저장
-                        output_filename = generate_output_filename(pdf_name, page_num)
+                        # 6. 블러 처리된 이미지 저장 (파일명_작업순서.png)
+                        output_filename = generate_output_filename(pdf_name, sequence_number)
                         output_path = os.path.join(workspace.output_folder, output_filename)
                         blurred_img.save(output_path)
+
+                        # 7. 영수증 정보와 파일명을 함께 저장
+                        receipt_data = receipt_info.to_dict()
+                        receipt_data['filename'] = output_filename
+                        receipt_data['sequence_number'] = sequence_number
+                        receipts_data.append(receipt_data)
 
                         processed_count += 1
                         logger.info(f"  저장 완료: {output_filename}")
 
                     except Exception as e:
-                        logger.error(f"  페이지 {page_num} 처리 실패: {e}")
+                        logger.error(f"  이미지 처리 실패: {e}")
                         continue
 
                 if not pdf_result.extracted_images:
@@ -204,11 +230,9 @@ async def blur_sensitive_info(files: List[UploadFile] = File(...), user_id: str 
 
         # 7. 결과 반환
         return {
-            "success": True,
-            "message": "블러 처리 완료",
-            "uploaded_pdfs": len(pdf_files_to_upload),
-            "processed_images": processed_count,
-            "output_folder": workspace.output_folder
+            "message": "success",
+            "output_folder": workspace.output_folder,
+            "receipts": receipts_data  # 영수증 정보 배열
         }
 
     except HTTPException:

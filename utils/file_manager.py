@@ -3,7 +3,6 @@
 """
 import os
 import glob
-import tempfile
 import uuid
 from datetime import datetime
 from typing import List, Tuple, Optional
@@ -61,7 +60,7 @@ async def save_uploaded_pdf(
     target_dir: str
 ) -> str:
     """
-    업로드된 PDF 파일을 임시 디렉토리에 저장
+    업로드된 PDF 파일을 원본 파일명으로 저장
 
     Args:
         file: FastAPI UploadFile 객체
@@ -72,17 +71,14 @@ async def save_uploaded_pdf(
     """
     os.makedirs(target_dir, exist_ok=True)
 
-    temp_pdf = tempfile.NamedTemporaryFile(
-        dir=target_dir,
-        delete=False,
-        suffix=".pdf"
-    )
+    # 원본 파일명 사용
+    file_path = os.path.join(target_dir, file.filename)
 
     content = await file.read()
-    temp_pdf.write(content)
-    temp_pdf.close()
+    with open(file_path, 'wb') as f:
+        f.write(content)
 
-    return temp_pdf.name
+    return file_path
 
 
 def find_pdf_files(directory: str) -> List[str]:
