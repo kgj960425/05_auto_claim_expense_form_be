@@ -19,7 +19,7 @@ timestamp = start_time.strftime("%Y%m%d%H%M%S")
 job_uuid = str(uuid.uuid4())[:8]  # UUID의 앞 8자리만 사용
 
 # 출력 폴더명: 작업시작시간 + UUID
-output_folder = f"extracted_images/{timestamp}_{job_uuid}"
+output_folder = f"static/temp/ocr/{timestamp}_{job_uuid}"
 os.makedirs(output_folder, exist_ok=True)
 
 
@@ -60,29 +60,16 @@ for pdf_idx, PDF_PATH in enumerate(pdf_files, 1):
 
     doc.close()
 
-    # PyMuPDF4LLM 시도 (다양한 옵션)
-    print("\n=== PyMuPDF4LLM Extraction ===")
-
-    # 옵션 1: 기본
-    print("\n1. Basic extraction:")
     md_text = pymupdf4llm.to_markdown(PDF_PATH)
-    print(f"   Length: {len(md_text)}")
-
-    # 옵션 2: page_chunks 활성화
-    print("\n2. With page_chunks:")
     md_chunks = pymupdf4llm.to_markdown(PDF_PATH, page_chunks=True)
-    print(f"   Chunks: {len(md_chunks) if isinstance(md_chunks, list) else 'N/A'}")
     if isinstance(md_chunks, list) and md_chunks:
         print(f"   First chunk length: {len(md_chunks[0].get('text', ''))}")
         print(f"   First chunk preview: {md_chunks[0].get('text', '')[:300]}")
 
-    # PDF별 임시 이미지 디렉토리 생성
     pdf_name = os.path.splitext(os.path.basename(PDF_PATH))[0]
-    temp_image_dir = f"temp_extracted/{pdf_name}"
+    temp_image_dir = f"static/temp/ocr/{pdf_name}"
     os.makedirs(temp_image_dir, exist_ok=True)
 
-    # 옵션 3: 이미지 포함
-    print("\n3. With images:")
     try:
         md_with_images = pymupdf4llm.to_markdown(
             PDF_PATH,
@@ -96,34 +83,18 @@ for pdf_idx, PDF_PATH in enumerate(pdf_files, 1):
     except Exception as e:
         print(f"   Error: {e}")
 
-    # ==========================
-    # 4️⃣ 추출된 이미지에 OCR 적용
-    # ==========================
-    print("\n=== OCR on Extracted Images ===")
-
     if os.path.exists(temp_image_dir):
         image_files = [f for f in os.listdir(temp_image_dir) if f.endswith('.png')]
-        print(f"Found {len(image_files)} images")
-
         for img_file in image_files:
             img_path = os.path.join(temp_image_dir, img_file)
-            print(f"\n[{img_file}] OCR 시작...")
-
-            # 이미지 로드
             img = Image.open(img_path)
 
-            # Tesseract OCR
             ocr_text = pytesseract.image_to_string(img, lang='kor+eng', config='--psm 6')
-            print(f"  텍스트 길이: {len(ocr_text)}")
-
-            # 위치 정보 포함 OCR
             data = pytesseract.image_to_data(img, lang='kor+eng', config='--psm 6', output_type=pytesseract.Output.DICT)
 
             # 민감 정보 찾기: 카드번호 + 8~10자리 모든 숫자
             n_boxes = len(data['text'])
             positions = []
-
-            print(f"  총 {n_boxes}개 텍스트 박스 검사 중...")
 
             for i in range(n_boxes):
                 if int(data['conf'][i]) < 30:
@@ -166,17 +137,12 @@ for pdf_idx, PDF_PATH in enumerate(pdf_files, 1):
                     if roi.size > 0:
                         blurred_roi = cv2.GaussianBlur(roi, (51, 51), 0)
                         blurred[y1:y2, x1:x2] = blurred_roi
-                        print(f"  ✅ {label} 블러 완료")
 
                 # 저장 - 파일명: 작업시작시간 + 원본파일명
                 output_filename = f"{timestamp}_{pdf_name}_{img_file}"
                 output_path = os.path.join(output_folder, output_filename)
                 blurred_img = Image.fromarray(blurred)
                 blurred_img.save(output_path)
-                print(f"  💾 저장: {output_path}")
-
-            print(f"\n  === OCR 텍스트 미리보기 ===")
-            print(ocr_text[:500])
     else:
         print("⚠️ No images extracted")
 
@@ -184,9 +150,6 @@ for pdf_idx, PDF_PATH in enumerate(pdf_files, 1):
 import shutil
 if os.path.exists("temp_extracted"):
     shutil.rmtree("temp_extracted")
-    print("\n🗑️ 임시 파일 정리 완료")
 
-print(f"\n{'='*80}")
-print(f"✅ 전체 처리 완료! 총 {len(pdf_files)}개 PDF 파일 처리됨")
-print(f"📁 결과 저장 위치: {output_folder}")
-print(f"{'='*80}")
+print(f" 전체 처리 완료! 총 {len(pdf_files)}개 PDF 파일 처리됨")
+
