@@ -6,9 +6,16 @@ import fitz
 import tempfile # 임시로 파일 생성. import 받은 파일이 with 구문 밖으로 나가자 마자 삭제 되도록
 import base64
 import requests
+import pymupdf4llm
+import pytesseract
+from PIL import Image
+import re
 
 from fastapi.responses import JSONResponse
 from utils.crop_receipt import auto_crop_receipt
+
+# Tesseract 경로 설정 (Windows)
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 app = FastAPI()
 
@@ -66,3 +73,127 @@ async def process_receipt(file: UploadFile = File(...)):
         "amount": amount.group(1) if amount else None,
         "cropped_image": f"data:image/png;base64,{img_base64}",
     }
+
+@app.post("/ocr/blur-sensitive-info")
+async def blur_sensitive_info(file: UploadFile = File(...)):
+    """
+    PDF에서 민감 정보(카드번호, 8-10자리 숫자)를 자동으로 감지하고 블러 처리합니다.
+
+    - PyMuPDF4LLM으로 PDF에서 이미지 추출
+    - Tesseract OCR로 텍스트 위치 감지
+    - 카드번호(15자리 이상), 8-10자리 숫자를 찾아 블러 처리
+    - 블러 처리된 이미지를 Base64로 반환
+    """
+    # 1️⃣ PDF 임시 저장
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    temp_pdf.write(await file.read())
+    temp_pdf.close()
+
+    # 2️⃣ 임시 이미지 디렉토리 생성
+    temp_image_dir = tempfile.mkdtemp()
+
+    try:
+        # 3️⃣ PyMuPDF4LLM으로 이미지 추출
+        pymupdf4llm.to_markdown(
+            temp_pdf.name,
+            write_images=True,
+            image_path=temp_image_dir,
+            page_chunks=True
+        )
+
+        # 4️⃣ 추출된 이미지 파일 찾기
+        image_files = [f for f in os.listdir(temp_image_dir) if f.endswith('.png')]
+
+        if not image_files:
+            return {"error": "No images extracted from PDF"}
+
+        blurred_images = []
+
+        # 5️⃣ 각 이미지에 대해 OCR + 블러 처리
+        for img_file in image_files:
+            img_path = os.path.join(temp_image_dir, img_file)
+            img = Image.open(img_path)
+
+            # OCR로 텍스트 위치 정보 추출
+            data = pytesseract.image_to_data(
+                img,
+                lang='kor+eng',
+                config='--psm 6',
+                output_type=pytesseract.Output.DICT
+            )
+
+            # 민감 정보 위치 찾기
+            n_boxes = len(data['text'])
+            positions = []
+            detected_items = []
+
+            for i in range(n_boxes):
+                if int(data['conf'][i]) < 30:
+                    continue
+
+                text = data['text'][i].strip()
+                if not text:
+                    continue
+
+                text_digits = re.sub(r'[^0-9*]', '', text)
+
+                # 카드번호 (15자리 이상, *포함)
+                if len(text_digits) >= 15:
+                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                    positions.append(('카드번호', x, y, w, h))
+                    detected_items.append({'type': '카드번호', 'text': text, 'position': {'x': x, 'y': y}})
+
+                # 8~10자리 숫자 (날짜 제외)
+                elif 8 <= len(text_digits) <= 10:
+                    if not re.match(r'20\d{2}[-/]\d{2}[-/]\d{2}', text):
+                        x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                        positions.append((f'{len(text_digits)}자리', x, y, w, h))
+                        detected_items.append({'type': f'{len(text_digits)}자리 숫자', 'text': text, 'position': {'x': x, 'y': y}})
+
+            # 6️⃣ 블러 처리
+            img_array = np.array(img)
+            blurred = img_array.copy()
+
+            for _, x, y, w, h in positions:
+                padding = 10
+                x1 = max(0, x - padding)
+                y1 = max(0, y - padding)
+                x2 = min(blurred.shape[1], x + w + padding)
+                y2 = min(blurred.shape[0], y + h + padding)
+
+                roi = blurred[y1:y2, x1:x2]
+                if roi.size > 0:
+                    blurred_roi = cv2.GaussianBlur(roi, (51, 51), 0)
+                    blurred[y1:y2, x1:x2] = blurred_roi
+
+            # 7️⃣ 블러 처리된 이미지를 Base64로 변환
+            blurred_img = Image.fromarray(blurred)
+
+            # 메모리에서 Base64 변환
+            import io
+            buffer = io.BytesIO()
+            blurred_img.save(buffer, format='PNG')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+            blurred_images.append({
+                'filename': img_file,
+                'detected_count': len(positions),
+                'detected_items': detected_items,
+                'blurred_image': f"data:image/png;base64,{img_base64}"
+            })
+
+        return {
+            "success": True,
+            "total_images": len(image_files),
+            "images": blurred_images
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+    finally:
+        # 8️⃣ 임시 파일 정리
+        os.unlink(temp_pdf.name)
+        import shutil
+        if os.path.exists(temp_image_dir):
+            shutil.rmtree(temp_image_dir)
