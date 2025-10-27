@@ -1,4 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 import tempfile, os
 import cv2
 import numpy as np
@@ -10,6 +12,7 @@ import pymupdf4llm
 import pytesseract
 from PIL import Image
 import re
+import pikepdf
 
 from fastapi.responses import JSONResponse
 from utils.crop_receipt import auto_crop_receipt
@@ -18,6 +21,12 @@ from utils.crop_receipt import auto_crop_receipt
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 app = FastAPI()
+
+# Request Body 모델 정의
+class MergeRequest(BaseModel):
+    pdf_list: list[str]
+    pdf_path: str
+    output_file_name: str
 
 @app.get("/serverCheck")
 def custom_json():
@@ -197,3 +206,85 @@ async def blur_sensitive_info(file: UploadFile = File(...)):
         import shutil
         if os.path.exists(temp_image_dir):
             shutil.rmtree(temp_image_dir)
+
+@app.post("/merge/")
+async def merge_pdfs_in_order(request: MergeRequest):
+    """
+    사용자가 지정한 순서대로 PDF 파일을 병합합니다.
+    {
+        "pdf_list": [
+            "0601_1.pdf",
+            "0601_2.pdf",
+            "0602_1.pdf",
+            "0605_1.pdf",
+            "0605_2.pdf",
+            "0607_1.pdf",
+            "0607_2.pdf",
+            "0608_1.pdf",
+            "0608_2.pdf",
+            "0609_1.pdf",
+            "0609_2.pdf",
+            "0612_1.pdf",
+            "0612_2.pdf",
+            "0612_3.pdf",
+            "0613_1.pdf",
+            "0613_2.pdf",
+            "0613_3.pdf",
+            "0614_1.pdf",
+            "0614_2.pdf",
+            "0615_1.pdf",
+            "0615_2.pdf",
+            "0616_1.pdf",
+            "0616_2.pdf",
+            "0616_3.pdf",
+            "0619_1.pdf",
+            "0619_2.pdf",
+            "0619_3.pdf",
+            "0620_1.pdf",
+            "0620_2.pdf",
+            "0621_1.pdf",
+            "0621_2.pdf",
+            "0622_1.pdf",
+            "0622_2.pdf",
+            "0623_1.pdf",
+            "0623_2(시건장치).pdf",
+            "0626_1.pdf",
+            "0627_1.pdf",
+            "0627_2.pdf",
+            "0628_1.pdf",
+            "0630_1.pdf",
+            "0630_2(인터넷랜어댑터).pdf"
+        ],
+        "pdf_path": "tester_20251027160000_cf1500be",
+        "output_file_name": "merged_result.pdf"
+    }
+    """
+    merged = pikepdf.Pdf.new()
+    total_pages = 0
+    base_pdf_path = f"static/temp/{request.pdf_path}/pdf"
+    result_folder = f"static/temp/{request.pdf_path}/result"
+    os.makedirs(result_folder, exist_ok=True)
+
+    for pdf_filename in request.pdf_list:
+        full_path = os.path.join(base_pdf_path, pdf_filename)
+        print(f"병합 중: {full_path}")
+        try:
+            src = pikepdf.Pdf.open(full_path)
+            merged.pages.extend(src.pages)
+            total_pages += len(src.pages)
+            src.close()
+        except Exception as e:
+            print(f"{full_path} 병합 실패: {e}")
+
+    # 병합된 파일을 result 폴더에 저장
+    result_path = os.path.join(result_folder, request.output_file_name)
+    merged.save(result_path)
+    merged.close()
+    print(f"완료: {result_path} (총 {total_pages} 페이지)")
+
+    # 파일 다운로드 응답 반환
+    return FileResponse(
+        path=result_path,
+        media_type="application/pdf",
+        filename=request.output_file_name
+    )
