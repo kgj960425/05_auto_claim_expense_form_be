@@ -267,7 +267,6 @@ async def merge_pdfs_in_order(request: MergeRequest):
 
     for pdf_filename in request.pdf_list:
         full_path = os.path.join(base_pdf_path, pdf_filename)
-        print(f"병합 중: {full_path}")
         try:
             src = pikepdf.Pdf.open(full_path)
             merged.pages.extend(src.pages)
