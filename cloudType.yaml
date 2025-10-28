@@ -1,24 +1,13 @@
-name: autoclaimexpense
-app:
-  runtime: dockerfile
-  env:
-    GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-  build:
-    system:
-      - apt-get update
-      - apt-get install -y \
-          tesseract-ocr \
-          libtesseract-dev \
-          poppler-utils \
-          libgl1-mesa-glx \
-          libglib2.0-0
-    install:
-      - pip install --no-cache-dir -r requirements.txt
-    commands:
-      - chmod +x ./tesseract/tesseract
+name: ocr-expense-claim-formp-docker
+app: dockerfile
+options:
+  ports: "8000"
   start: uvicorn main:app --host 0.0.0.0 --port 8000
   healthz: /serverCheck
-  ports: "8000"
+  env:
+    - name: GOOGLE_API_KEY
+      value: ${GOOGLE_API_KEY}
+  buildenv: []
 context:
   git:
     url: git@github.com:kgj960425/05_auto_claim_expense_form_be.git
