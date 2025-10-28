@@ -1,5 +1,5 @@
-name: ocr-expense-claim-form
-app: python@3.12
+name: ocr-expense-claim-formp-docker
+app: dockerfile
 options:
   build:
     system:

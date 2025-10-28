@@ -1,6 +1,6 @@
 name: autoclaimexpense
 app:
-  runtime: python@3.12
+  runtime: dockerfile
   env:
     GOOGLE_API_KEY: ${GOOGLE_API_KEY}
   build:

@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . .
 
+# ✅ 전체 권한 부여 (쓰기 문제 방지)
+RUN chmod -R 777 /app
+
 # 의존성 설치
 RUN pip install --no-cache-dir -r requirements.txt
 
