@@ -1,22 +1,9 @@
 name: autoclaimexpense
 app:
-  runtime: python@3.12
+  runtime: dockerfile
+  dockerfile: Dockerfile
   env:
     GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-  build:
-    # ✅ Tesseract + PDF + OpenCV 관련 패키지 설치
-    system:
-      - apt-get update
-      - apt-get install -y \
-          tesseract-ocr \
-          libtesseract-dev \
-          poppler-utils \
-          libgl1-mesa-glx \
-          libglib2.0-0
-    # ✅ Python 의존성 설치
-    install:
-      - pip install --no-cache-dir -r requirements.txt
-  start: uvicorn main:app --host 0.0.0.0 --port 8000
   healthcheck:
     path: /serverCheck
     interval: 10
