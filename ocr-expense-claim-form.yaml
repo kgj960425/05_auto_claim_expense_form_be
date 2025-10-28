@@ -1,8 +1,6 @@
-name: autoclaimexpense
-app:
-  runtime: python@3.12
-  env:
-    GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+name: ocr-expense-claim-form
+app: python@3.12
+options:
   build:
     system:
       - apt-get update
@@ -16,9 +14,13 @@ app:
       - pip install --no-cache-dir -r requirements.txt
     commands:
       - chmod +x ./tesseract/tesseract
+  ports: "8000"
   start: uvicorn main:app --host 0.0.0.0 --port 8000
   healthz: /serverCheck
-  ports: "8000"
+  env:
+    - name: GOOGLE_API_KEY
+      value: AIzaSyCxYhiCvGNaz6NesfJy-MQHfV6Sr6kOdhk
+  buildenv: []
 context:
   git:
     url: git@github.com:kgj960425/05_auto_claim_expense_form_be.git
