@@ -21,8 +21,8 @@ jobs:
           project: kgj960425/cloudtype
           stage: main
           yaml: |
-            name: ocr-expense-claim-form
-            app: python@3.12
+            name: ocr-expense-claim-formp-docker
+            app: dockerfile
             options:
               ports: "8000"
               start: uvicorn main:app --host 0.0.0.0 --port 8000
