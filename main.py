@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+import platform
 import tempfile
 import os
 import base64
@@ -29,15 +30,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Tesseract 경로 설정 (환경별 자동 감지)
-import platform
-if platform.system() == 'Windows':
-    # Windows 로컬 개발 환경
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:
-    # CloudType 등 Linux 서버
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-# Linux/CloudType 배포 환경은 시스템에 설치된 tesseract 자동 사용 (설정 불필요)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if platform.system() == "Linux":  # Cloudtype 환경
+    pytesseract.pytesseract.tesseract_cmd = os.path.join(BASE_DIR, "bin", "tesseract")
+    os.environ["TESSDATA_PREFIX"] = os.path.join(BASE_DIR, "share", "tessdata")
+else:  # Windows 개발환경
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 app = FastAPI()
 
