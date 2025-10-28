@@ -33,9 +33,12 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 if platform.system() == "Linux":  # Cloudtype 환경
-    pytesseract.pytesseract.tesseract_cmd = os.path.join(BASE_DIR, "bin", "tesseract")
-    os.environ["TESSDATA_PREFIX"] = os.path.join(BASE_DIR, "share", "tessdata")
-else:  # Windows 개발환경
+    pytesseract.pytesseract.tesseract_cmd = os.path.join(BASE_DIR, "tesseract", "tesseract")
+    os.environ["TESSDATA_PREFIX"] = os.path.join(BASE_DIR, "tesseract")
+
+    logging.info(f"Tesseract binary: {pytesseract.pytesseract.tesseract_cmd}")
+    logging.info(f"TESSDATA_PREFIX: {os.environ['TESSDATA_PREFIX']}")
+else:  # Windows 로컬
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 app = FastAPI()
