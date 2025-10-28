@@ -34,6 +34,9 @@ import platform
 if platform.system() == 'Windows':
     # Windows 로컬 개발 환경
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    # CloudType 등 Linux 서버
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 # Linux/CloudType 배포 환경은 시스템에 설치된 tesseract 자동 사용 (설정 불필요)
 
 app = FastAPI()
