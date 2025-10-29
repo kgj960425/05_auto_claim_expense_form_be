@@ -1,6 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
 import platform
 import tempfile
 import os
@@ -36,6 +38,7 @@ if platform.system() == "Windows":  # Cloudtype 환경
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"    
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="/root/testfile/static"), name="static")
 
 # Request Body 모델 정의
 class MergeRequest(BaseModel):
@@ -49,7 +52,10 @@ def custom_json():
     return JSONResponse(content=data, status_code=200)
 
 @app.post("/ocr/upload")
-async def blur_sensitive_info(files: List[UploadFile] = File(...), user_id: str = "tester") -> Dict[str, Any]:
+async def blur_sensitive_info(
+    files: List[UploadFile] = File(...), 
+    user_id: str = "tester"
+    ) -> Dict[str, Any]:
     """
     PDF에서 민감 정보(카드번호, 8-10자리 숫자)를 자동으로 감지하고 블러 처리합니다.
 
