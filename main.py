@@ -48,12 +48,12 @@ class MergeRequest(BaseModel):
     pdf_path: str
     output_file_name: str
 
-@app.get("/serverCheck")
+@app.get("/api/v1/ping")
 def custom_json():
     data = {"msg": "ok"}
     return JSONResponse(content=data, status_code=200)
 
-@app.post("/ocr/upload")
+@app.post("/api/v1/ocr")
 async def blur_sensitive_info(
     files: List[UploadFile] = File(...), 
     user_id: str = "tester"
@@ -201,7 +201,7 @@ async def blur_sensitive_info(
         logger.error(f"블러 처리 중 오류 발생: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
-@app.post("/merge/")
+@app.post("/api/v1/merge")
 async def merge_pdfs_in_order(request: MergeRequest):
     """
     사용자가 지정한 순서대로 PDF 파일을 병합합니다.
