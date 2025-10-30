@@ -34,11 +34,13 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+app = FastAPI()
+
 if platform.system() == "Windows":  # Cloudtype 환경
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"    
+elif platform.system() == "Linux":  # 리눅스(Docker) 환경
+    app.mount("/blur", StaticFiles(directory="/app/static/temp"), name="blur")
 
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="/root/testfile/static"), name="static")
 
 # Request Body 모델 정의
 class MergeRequest(BaseModel):

@@ -6,6 +6,59 @@
 - pip install -r requirements.txt
 - uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
+
+build
+# testfile이라는 이름으로 빌드
+docker build -t testfile:latest .
+
+# 빌드 완료 후 확인
+docker images | findstr testfile
+
+# tar 파일로 저장
+docker save -o testfile.tar testfile:latest
+
+# 파일 생성 확인
+dir testfile.tar
+
+# testfile.tar 파일이 있는 위치로 이동
+cd ~
+
+# 기존 컨테이너 중지 및 삭제
+docker stop testfile
+docker rm testfile
+
+# 기존 testfile 이미지 삭제
+docker rmi testfile:latest
+
+# Docker 이미지 로드
+docker load -i testfile.tar
+
+# 로드 확인
+docker images
+
+# 컨테이너 실행
+docker run -d \
+  --name testfile \
+  -p 8000:8000 \
+  -v ~/testfile/static:/app/static \
+  -v ~/testfile/temp:/app/temp \
+  --env-file ~/testfile/.env \
+  --restart unless-stopped \
+  testfile:latest
+
+# 컨테이너 상태 확인
+docker ps
+
+# 로그 확인
+docker logs -f testfile
+
+# API 테스트
+curl http://localhost:8000/serverCheck
+
+
+
+
+
 # CloudType으로 배포 할 때 고려해야 할 것.
 # 1. requirement.txt - 지원하지 않는 라이브러리 업데이트를 위해 cloudType.yaml에 apt-get update 필요
 # 2. api 서버의 경우 Health Check의 api 호출이 되는지 여부로 프로젝트 배포 여부를 확인함. 배포 port 확인 잘 할 것.
