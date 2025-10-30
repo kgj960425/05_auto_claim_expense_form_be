@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 import platform
 import tempfile
@@ -40,7 +41,17 @@ if platform.system() == "Windows":  # Cloudtype 환경
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"    
 elif platform.system() == "Linux":  # 리눅스(Docker) 환경
     app.mount("/blur", StaticFiles(directory="/app/static/temp"), name="blur")
-
+    # 허용할 도메인
+    origins = [
+    "https://autoclaimexpenseform.web.app",
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,         # 허용할 도메인
+        allow_credentials=True,
+        allow_methods=["*"],           # 모든 메서드 허용 (GET, POST 등)
+        allow_headers=["*"],           # 모든 헤더 허용
+    )
 
 # Request Body 모델 정의
 class MergeRequest(BaseModel):
